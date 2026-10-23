@@ -42,6 +42,17 @@ code { font-size: .85em; word-break: break-all; }
 .tabs { display: flex; gap: 4px; overflow-x: auto; }
 .tabs a { color: #c9d3de; text-decoration: none; padding: 6px 10px; border-radius: 6px; white-space: nowrap; font-size: .95rem; }
 .tabs a.on { background: #ffffff; color: #16212e; font-weight: 600; }
+.gh-link { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: #c9d3de; text-decoration: none; font-size: .9rem; padding: 6px 8px; border-radius: 6px; white-space: nowrap; }
+.gh-link:hover { color: #fff; background: rgba(255,255,255,.1); }
+
+/* 首次開啟提示 */
+.welcome { border: none; border-radius: 12px; padding: 0; width: min(360px, calc(100% - 32px)); text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,.3); color: var(--ink); background: var(--panel); }
+.welcome form { padding: 24px 24px 20px; }
+.welcome::backdrop { background: rgba(22,33,46,.55); }
+.welcome h2 { margin: 0 0 6px; font-size: 1.35rem; }
+.welcome p { margin: 0 0 18px; color: var(--muted); }
+.welcome-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.welcome-close { position: absolute; top: 6px; right: 8px; border: none; background: none; font-size: 1.4rem; line-height: 1; color: var(--muted); cursor: pointer; padding: 4px 8px; }
 
 /* 載入 */
 .loading { position: fixed; inset: var(--topbar) 0 0 0; z-index: 40; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--bg); }
@@ -209,6 +220,7 @@ table { border-collapse: collapse; width: 100%; }
 @media (max-width: 480px) {
   .topbar { gap: 8px; padding: 0 10px; }
   .brand { display: none; }
+  .gh-text { display: none; }
   .tabs a { padding: 6px 8px; font-size: .9rem; }
   .view-check, .view-about { padding: 12px; }
   .facts { grid-template-columns: 1fr; }

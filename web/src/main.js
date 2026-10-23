@@ -377,5 +377,17 @@ $('#drawer-close').addEventListener('click', () => {
   st.mapView?.select(null);
   history.replaceState(null, '', '#/map');
 });
+// 首次開啟提示：只顯示一次；本來就開在健檢卡的連結不打擾
+function showWelcome() {
+  const KEY = 'welcome-seen';
+  try { if (localStorage.getItem(KEY)) return; localStorage.setItem(KEY, '1'); } catch { /* 無痕模式等：照常顯示 */ }
+  if (parseHash().route === 'check') return;
+  const dlg = $('#welcome');
+  dlg.addEventListener('close', () => { if (dlg.returnValue === 'check') location.hash = '#/check'; });
+  dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+  dlg.showModal();
+}
+
 bindCheck();
+showWelcome();
 boot();
