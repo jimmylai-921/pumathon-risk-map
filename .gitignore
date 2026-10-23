@@ -1,0 +1,9 @@
+# 虛擬環境
+.venv/
+__pycache__/
+
+# 原始與處理後資料（體積大，且地籍資料為獨家來源，不進版控）
+data/raw/
+data/processed/
+*.parquet
+*.duckdb
