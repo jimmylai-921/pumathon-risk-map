@@ -34,7 +34,17 @@ def normalize(s: pd.Series) -> pd.DataFrame:
     """回傳 DataFrame：district, base（到「號」為止，含市區）, floor（號之後）。"""
     x = s.fillna("").map(lambda v: unicodedata.normalize("NFKC", v))
     x = x.str.replace(r"\s+", "", regex=True).str.replace("臺", "台", regex=False)
-    # 去掉「XX里X鄰」「X鄰」
+    # 北投區「公舘路」的「舘」不在 Big5：地籍爬取資料變成「?」，實價登錄有私用區字元、「□」、「館」「錧」等寫法，統一回正式路名
+    x = x.str.replace("公[?�□館錧]路", "公舘路", regex=True)
+    # 去掉郵遞區號前綴：「106」「10617」「106017」「(106)」，後面接「台北」「XX區」「XX里」或路名才算
+    #   （「123巷4號」的「巷」後面不是路街，不會被誤刪）
+    x = x.str.replace(r"^\(?\d{3}(?:\d{2,3})?\)?(?=台北|[一-鿿]{2}區|[一-鿿]{1,3}里|[一-鿿]+?(?:路|街|大道))",
+                      "", regex=True)
+    # 去掉「XX里X鄰」「XX里」「X鄰」：
+    #   區後面的里名（鄰可有可無）；沒寫區時，開頭（可帶台北市）的里名
+    #   已確認臺北市沒有以「X里」開頭的路名，也沒有路名以里名開頭，不會誤刪
+    x = x.str.replace(r"(?<=區)[一-鿿]{1,3}里(?:\d+鄰)?", "", regex=True)
+    x = x.str.replace(r"^(台北市)?[一-鿿]{1,3}里(?:\d+鄰)?(?=[一-鿿])", r"\1", regex=True)
     x = x.str.replace(r"[一-鿿]{1,3}里\d+鄰", "", regex=True)
     x = x.str.replace(r"(?<=區)\d+鄰", "", regex=True)
     # 段：中文數字 → 阿拉伯數字
