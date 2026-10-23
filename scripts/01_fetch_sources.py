@@ -42,6 +42,10 @@ SOURCES = [
     ("shanchiao_fault.geojson",
      "https://arcgispor.gov.taipei/portal/sharing/rest/content/items/7dab54ea35454f5fb2a1c053eaaeb315/data",
      "山腳斷層"),
+    # 臺北市高氯離子混凝土建築物（海砂屋）列管清冊（建管處，115.3.25 版 PDF；data.gov.tw 128196 的 CSV 只有市有 5 筆）
+    ("seasand/list_1150325.pdf",
+     "https://www-ws.gov.taipei/001/Upload/845/relfile/-1/845/7e3d3798-d6ab-4f35-b720-44854dec092c.pdf",
+     "海砂屋列管清冊"),
     # 內政部村里界圖（TWD97 經緯度 SHP，用來把座標落到「里」）
     ("village_boundary.zip",
      "https://www.tgos.tw/tgos/VirtualDir/Product/a04697c8-64db-450a-a105-3eb471c45abd/村(里)界(TWD97經緯度).zip",
@@ -55,6 +59,7 @@ def fetch(name: str, url: str, desc: str, force: bool) -> None:
         print(f"[skip] {desc}: {out.name} 已存在 ({out.stat().st_size:,} bytes)")
         return
     print(f"[get ] {desc}: {url}")
+    out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_suffix(out.suffix + ".part")
     with requests.get(url, stream=True, timeout=(30, 900), headers={"User-Agent": "Mozilla/5.0"}) as r:
         r.raise_for_status()

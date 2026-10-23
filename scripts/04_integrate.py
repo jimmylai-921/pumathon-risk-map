@@ -198,6 +198,29 @@ def join_lvr(u: pd.DataFrame, b: pd.DataFrame) -> pd.DataFrame:
     return b
 
 
+# ---------------------------------------------------------------- 2c. 海砂屋列管
+def join_seasand(u: pd.DataFrame, b: pd.DataFrame) -> pd.DataFrame:
+    cases = pd.read_parquet(PROC / "seasand_cases.parquet")
+    bases = pd.read_parquet(PROC / "seasand_bases.parquet")
+    say("\n## 2c. 海砂屋列管清冊 ↔ 地籍（門牌號層級）")
+    say(f"- 列管 {len(cases)} 件、{int(cases['列管戶數'].sum()):,} 戶；展開門牌 {len(bases):,} 個")
+    m = bases.merge(u[["bkey", "base"]].dropna().drop_duplicates(), on="base")
+    m = m.merge(cases[["case_no", "列管分類", "license_roc_year"]], on="case_no")
+    m = m.merge(b[["bkey", "completion_year"]], on="bkey")
+    # 使照年 ≈ 地籍完成年才算同一棟；差太多代表已拆除重建或門牌對錯
+    yd = (m["completion_year"] - (m["license_roc_year"] + 1911)).abs()
+    m["year_ok"] = yd.isna() | (yd <= 3)
+    say(f"- 門牌對上地籍：{pct(m['base'].nunique(), bases['base'].nunique())}；"
+        f"案件至少一棟對上：{pct(m['case_no'].nunique(), len(cases))}")
+    say(f"- 使照年與完成年差 ≤3（或缺完成年）：{pct(int(m['year_ok'].sum()), len(m))}；其餘視為已重建或誤配，不標記")
+    ok = m[m["year_ok"]].sort_values("case_no").drop_duplicates("bkey")
+    b = b.merge(ok[["bkey", "case_no", "列管分類"]].rename(
+        columns={"case_no": "seasand_case", "列管分類": "seasand_class"}), on="bkey", how="left")
+    say(f"- 逐棟標記海砂屋：{int(b['seasand_case'].notna().sum()):,} 棟（{ok['case_no'].nunique()} 件），"
+        f"涵蓋列管戶數 {int(cases.loc[cases['case_no'].isin(ok['case_no']), '列管戶數'].sum()):,}")
+    return b
+
+
 # ---------------------------------------------------------------- 3. 空間圖層
 def join_spatial(b: pd.DataFrame) -> gpd.GeoDataFrame:
     g = gpd.GeoDataFrame(b, geometry=gpd.points_from_xy(b["lon"], b["lat"]), crs="EPSG:4326")
@@ -331,6 +354,7 @@ def main() -> None:
     u, b = load_buildings()
     b = join_license(u, b)
     b = join_lvr(u, b)
+    b = join_seasand(u, b)
     g = join_spatial(b)
     g = join_fire(g, u)
 
