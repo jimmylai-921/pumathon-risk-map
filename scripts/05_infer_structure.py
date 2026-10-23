@@ -173,6 +173,13 @@ def main() -> None:
     out.loc[~known, "structure_pred_prob"] = proba.max(axis=1).values
     out.loc[~known, "p_masonry"] = proba[[c for c in MASONRY if c in proba]].sum(axis=1).values
     out.loc[known, "p_masonry"] = b.loc[known, "structure_class"].isin(MASONRY).astype(float)
+    # 各類別機率（已知者 one-hot），風險模型用來算「結構期望分數」，保留推估的不確定性
+    for c in CLASSES:
+        out[f"p_{c}"] = (b["structure_class"] == c).astype(float)
+        if c in proba:
+            out.loc[~known, f"p_{c}"] = proba[c].values
+    # 樓層明細特徵一併輸出，風險模型的「軟弱底層」用騎樓比例
+    out = out.merge(x[["bkey", "f_arcade", "f_basement", "f_elev_hall"]], on="bkey", how="left")
     out["structure_final"] = out["structure_class"].where(known, out["structure_pred"])
     out["structure_final_source"] = out["structure_source"].where(known, "推估")
     out["structure_confidence"] = np.where(known, 1.0, out["structure_pred_prob"])

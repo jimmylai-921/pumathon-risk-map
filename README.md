@@ -1,7 +1,36 @@
-# pumathon｜#6 危老耐震風險評級：資料整合實驗
+# pumathon｜#6 危老耐震風險評級
 
 > 最後更新：2026-10-23
-> 市政 debug 松（puma.taipei/hackathon）題目 #6「危老耐震如何查，風險評級怎麼找」。本階段只做「各來源能不能 join 到逐棟」，還沒做評分模型與 UI。
+> 市政 debug 松（puma.taipei/hackathon）題目 #6「危老耐震如何查，風險評級怎麼找」。目前完成：資料整合、結構推估、風險加權模型與驗證；尚未做 UI。
+
+## 風險模型（方向 A）
+
+公式與權重集中在 [config/risk_weights.json](config/risk_weights.json)，Python 與之後的前端共用同一份，前端滑桿只調權重、α 與 β。
+
+```
+建物脆弱度 V' = max( 加權平均(法規時期 .35, 結構 .30, 樓層型態 .20, 軟弱底層 .15), 海砂屋覆寫 )
+場址危害   H  = 加權平均(土壤液化 .7, 山腳斷層 .3)
+耐震風險      = V' × (1 + αH) / (1 + α)          α = 0.5
+救災社會   S  = 加權平均(里高齡比例 .5, 消防通道 .5)
+優先分數      = 100 × [ (1−β)·耐震風險 + β·S ]    β = 0.25
+```
+
+- **為什麼危害用乘的：** 用加法的話，蓋在高液化區的 2015 年 SRC 大樓會排在低液化區的 1970 年加強磚造前面。改成用乘的，結構好的新建物就算在不好的土壤上，分數仍然低。
+- **結構用期望分數：** 計算方式是 Σ P(類別) × 類別分數，推估的不確定性會留在分數裡，不會被硬分類掉。
+- **可解釋：** 每棟都有 `c_*` 各因子的貢獻分，加總剛好等於優先分數（腳本有 assert 檢查）。例如第 1 名 88.7 分 = 法規時期 17.5 + 土壤液化 16.7 + 結構 12.8 + 消防通道 12.5 + 里高齡比例 11.7 + 樓層型態 10.0 + 軟弱底層 7.5。
+- **影響戶數另列，不混進分數：** `household_impact` = 分數 × 戶數。依棟分數排的前 5% 和依影響戶數排的前 5% 只重疊 2%。前者大多是低矮的老磚屋，後者大多是大型老公寓（涵蓋 39 萬戶），兩者回答的是不同問題，由 UI 切換。
+- **分級（依預設權重的百分位）：** 極高為前 5%（≥63.1）、高為 5–15%、中為 15–40%、低為其餘。極高級共 11,798 棟、24,855 戶，其中加強磚造 66%、磚造 16%。
+
+### 驗證（沒有逐棟震損資料可對答案，所以做這四項）
+
+| 驗證 | 結果 | 解讀 |
+|---|---|---|
+| 海砂屋列管建物（859 棟）在原始分數中的排名 | 只有 0.3% 落在前 10%，中位數排在前 74% | **沒通過，但這本身是發現。** 海砂屋多為 1980 年代 RC，年代和結構因子抓不到材料缺陷，所以改以覆寫方式納入。覆寫後，77% 落在前 10% |
+| 權重 ±20%、α 與 β 一起擾動，跑 1,000 次 | 前 5% 名單重疊率平均 93%，最差 84%；全市排名 Spearman ≥ 0.991 | 名單對權重的選擇是穩健的 |
+| 「缺完成年＝老屋」的假設 | 前 5% 中有 49% 是缺完成年的建物；把這個分數從 1.0 降到 0.8，前 5% 只剩 82.6% 重疊 | **這是目前影響最大的單一假設**，比權重擾動的影響還大，UI 必須標示 |
+| 官方統計與行政區分布 | 30 年以上屋齡比例：官方 90.9%，本資料 85–87%；大同、萬華分數最高，內湖、文山最低 | 和公開認知一致 |
+
+完整數字見 [reports/risk_model.md](reports/risk_model.md)。含地址的前 1,000 棟清單在 `data/processed/top_priority_buildings.csv`（不進版控）。
 
 ## 結論先講
 
@@ -31,6 +60,7 @@
 | [各里人口數按年齡分](https://data.taipei/dataset/detail?id=a6394e3f-3514-4542-87bd-de4310a40db3)（115 年 9 月） | 真實 | 里 | 里代碼 | 100%（65+ 比例 15.2%–36.3%） |
 | [消防通道清冊](https://data.taipei/dataset/detail?id=7a800e92-eb22-461f-b29d-8def2127a1bc) | 真實 | 巷弄文字 | 區＋路段＋巷文字比對（只有路名時限同里） | 9,395 棟落在列管巷道 |
 | [火災搶救困難地區場所清冊](https://data.gov.tw/dataset/145616) | 真實 | 場所地址 | 正規化門牌 | 411 筆中 285 筆對上（69%） |
+| [海砂屋列管清冊](https://www-ws.gov.taipei/001/Upload/845/relfile/-1/845/7e3d3798-d6ab-4f35-b720-44854dec092c.pdf)（建管處，115.3.25 版 PDF） | 真實 | 案件（複合門牌） | 展開複合門牌到「號」＋使照年與完成年差 ≤ 3 | 158 件中有 151 件對上；859 棟、7,099 戶 |
 | [現有營造建築物棟數](https://data.taipei/dataset/detail?id=7889e8a0-a71e-44e0-95c7-2213a7db1474) | 真實 | 全市彙總 | 不 join，只用來驗證覆蓋率 | — |
 
 完整數字見 [reports/join_report.md](reports/join_report.md)，由腳本自動產生。
@@ -43,6 +73,10 @@
 4. **地籍完成日有少數只寫到「年月」**（例如 `06212`），仍然保留年份。
 5. **「混凝土造」字串中含有「土造」。** 結構分類必須先判斷混凝土，否則 RC 會被誤判成土造。這段邏輯寫在 `scripts/structure.py`，使照和實價登錄共用。
 6. **實價登錄的總樓層是中文數字**（例如 `十三層`、`一百零一層`），門牌是全形數字，正規化時用 NFKC 處理。
+7. **海砂屋清冊只有 PDF 版是完整的。** data.gov.tw 128196 的 CSV 只收錄 5 筆市有建物。PDF 有幾個問題：
+   - 用 CJK 筆畫字元 `㇐` 代替「一」，NFKC 不會轉換，要另外處理。
+   - 案件 32 有一層重疊的隱藏文字，抽出來是亂碼；案件 124、141 在表格抽取時漏列。這三件依頁面影像或原文人工補正，補正內容寫在 `03c_stage_seasand.py` 的 `MANUAL_*`。
+   - 補正後的合計（158 件、7,424 戶）和清冊頁尾的數字一致。
 
 ### 已知限制
 
@@ -51,7 +85,9 @@
 - 使照的 `構造種類` 以「最弱的材料」歸類，例如混用 RC 與鋼骨時取 RC。
 - 最終的 `structure_class` 以使照優先，沒有使照才用實價登錄。實價登錄是賣方或代理人申報的資料，雖然交叉驗證一致率 98.5%，仍屬申報資料，不是官方鑑定。
 - **推估結構有選樣偏誤的風險。** 交叉驗證只能在「有交易紀錄」的建物上做，沒交易過的建物在同一年代裡通常更矮、戶數更少。在同一耐震時期內，推估群的磚造比例高於已知群（例如 1974 年前：60.5% 對 44.4%）。這方向合理，但無法直接驗證，UI 必須標示「推估」與信心度。
-- **地籍缺完成年的 27,859 棟，本身就是老磚屋的訊號。** 已知樣本中這群有 88% 是磚造類，多半是早年登記、沒有填完成日的建物。模型已利用這一點，但這群的屋齡仍然未知，風險模型需要另外處理，例如視為 1974 年前。
+- **地籍缺完成年的 27,859 棟，本身就是老磚屋的訊號。** 已知樣本中這群有 88% 是磚造類，多半是早年登記、沒有填完成日的建物。風險模型目前把它們比照 1974 年前計分，這是影響名單最大的假設（見上方驗證表）。
+- 山腳斷層因子的平均貢獻只有 0.2 分：臺北市只有北投一帶距斷層 1 km 以內，對其他區幾乎沒有作用。
+- 海砂屋有 7 件對不上地籍，另有 5 個門牌的完成年和使照年對不上，可能已經拆除重建，因此沒有標記。
 
 ## 目錄與重跑方式
 
@@ -60,16 +96,19 @@ scripts/01_fetch_sources.py     下載公開資料與實價登錄逐季檔到 da
 scripts/02_stage_cadastral.py   地籍 CSV → data/processed/cadastral_units.parquet
 scripts/03_stage_use_license.py 使照 XML → use_license*.parquet
 scripts/03b_stage_lvr.py        實價登錄 CSV → lvr.parquet
+scripts/03c_stage_seasand.py    海砂屋列管清冊 PDF → seasand_cases / seasand_bases.parquet（展開複合門牌）
 scripts/addr_norm.py            門牌正規化（共用）
 scripts/structure.py            結構文字分類（共用）
 scripts/04_integrate.py         逐棟整合 → buildings_integrated.parquet + reports/join_report.md
 scripts/05_infer_structure.py   推估缺結構建物 → buildings_with_structure.parquet + reports/structure_inference.md
+scripts/06_risk_model.py        風險分數、貢獻分、驗證 → buildings_risk.parquet + reports/risk_model.md
+config/risk_weights.json        風險模型的權重與計分表（Python／前端共用）
 ```
 
 `data/` 不進版控，因為地籍資料是獨家來源，而且體積大。
 
 ```bash
-python -m venv .venv && .venv/Scripts/python -m pip install duckdb geopandas pyarrow requests pyproj tabulate scikit-learn
+python -m venv .venv && .venv/Scripts/python -m pip install duckdb geopandas pyarrow requests pyproj tabulate scikit-learn pdfplumber
 ```
 
 ```bash
@@ -81,21 +120,23 @@ python -m venv .venv && .venv/Scripts/python -m pip install duckdb geopandas pya
 ```
 
 ```bash
-cd scripts && ../.venv/Scripts/python 03_stage_use_license.py && ../.venv/Scripts/python 03b_stage_lvr.py
+cd scripts && ../.venv/Scripts/python 03_stage_use_license.py && ../.venv/Scripts/python 03b_stage_lvr.py && ../.venv/Scripts/python 03c_stage_seasand.py
 ```
 
 ```bash
-cd scripts && ../.venv/Scripts/python 04_integrate.py && ../.venv/Scripts/python 05_infer_structure.py
+cd scripts && ../.venv/Scripts/python 04_integrate.py && ../.venv/Scripts/python 05_infer_structure.py && ../.venv/Scripts/python 06_risk_model.py
 ```
 
 ## 整合表欄位（`buildings_integrated.parquet`，235,964 列）
 
-`bkey, lat, lon, district, addr_base, n_units, completion_year(_min/_max), floor_count, total_floor_area_m2, age_2026, code_era, license_no, lic_structure_class, lic_structure_raw, floors_above, lvr_structure_class, lvr_structure_agree, lvr_building_type, lvr_elevator, lvr_records, structure_class, structure_source, VILLCODE, TOWNNAME, VILLNAME, village_pop, village_elderly_ratio, liq_class, liq_level, fault_dist_m, fire_lane_type, fire_lane_name, in_fire_lane_list, village_has_fire_lane, fire_difficult_place, fire_difficult_item`
+`bkey, lat, lon, district, addr_base, n_units, completion_year(_min/_max), floor_count, total_floor_area_m2, age_2026, code_era, license_no, lic_structure_class, lic_structure_raw, floors_above, lvr_structure_class, lvr_structure_agree, lvr_building_type, lvr_elevator, lvr_records, structure_class, structure_source, seasand_case, seasand_class, VILLCODE, TOWNNAME, VILLNAME, village_pop, village_elderly_ratio, liq_class, liq_level, fault_dist_m, fire_lane_type, fire_lane_name, in_fire_lane_list, village_has_fire_lane, fire_difficult_place, fire_difficult_item`
 
-`buildings_with_structure.parquet` 在上述欄位之外，再加上：`structure_pred, structure_pred_prob, p_masonry, structure_final, structure_final_source（使照／實價登錄／推估）, structure_confidence`。
+`buildings_with_structure.parquet` 在上述欄位之外，再加上：`structure_pred, structure_pred_prob, p_masonry, p_<各結構類別>, structure_final, structure_final_source（使照／實價登錄／推估）, structure_confidence, f_arcade, f_basement, f_elev_hall`。
+
+`buildings_risk.parquet` 再加上：`s_*`（各因子 0–1 分數）、`V, V_final, H, S, seismic, score`、`c_*`（各因子貢獻分）、`rank, tier, household_impact, rank_household`。
 
 ## 下一步（尚未做）
 
-1. （可選）確認地籍爬蟲能不能順便抓到建物標示部的「主要建材」。如果能抓到，可以取代推估值，也能驗證推估的選樣偏誤。
-2. **風險分數模型**（方向 A）：各因子正規化後加權，並保留每個因子的貢獻分數，作為可解釋性欄位。
-3. **地圖 UI**：MapLibre 或 deck.gl 畫 23.6 萬個點，沒有效能問題。
+1. **補缺完成年那批建物的資料。** 確認地籍爬蟲能不能抓到建物標示部的「主要建材」或完成日。這能消除目前影響最大的假設，也能驗證結構推估的選樣偏誤。
+2. **地圖 UI**：用 MapLibre 或 deck.gl 畫 23.6 萬個點，沒有效能問題。前端讀 `s_*` 和 `config/risk_weights.json`，用同一條公式即時重算；點選任一棟可以顯示 `c_*` 的分數拆解，並能匯出前 N 棟。
+3. 預設權重可以對照官方「耐震能力初步評估表」的項目再校一次（尚未查證）。
