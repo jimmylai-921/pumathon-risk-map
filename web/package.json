@@ -1,0 +1,26 @@
+{
+  "name": "pumathon-risk-map",
+  "private": true,
+  "version": "0.1.0",
+  "description": "臺北市危老耐震風險地圖與「我家安全嗎？」健檢卡（黑客松作品）",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test \"test/**/*.test.js\"",
+    "bench": "node bench/recompute.js"
+  },
+  "dependencies": {
+    "@deck.gl/core": "9.3.11",
+    "@deck.gl/layers": "9.3.11",
+    "@deck.gl/mapbox": "9.3.11",
+    "maplibre-gl": "6.13.0"
+  },
+  "devDependencies": {
+    "vite": "7.3.7"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

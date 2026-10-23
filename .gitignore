@@ -7,3 +7,9 @@ data/raw/
 data/processed/
 *.parquet
 *.duckdb
+
+# 前端：套件、建置產物，以及由 scripts/07_export_web.py 產生的資料與測試 fixture
+web/node_modules/
+web/dist/
+web/public/data/
+web/test/fixtures/

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="臺北市 23 萬棟建物的危老耐震風險分數地圖，與「我家安全嗎？」健檢卡。分數可解釋、權重可調。" />
+    <title>危老耐震風險地圖</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#/map">臺北市危老耐震風險</a>
+      <nav class="tabs" aria-label="主選單">
+        <a href="#/map" data-route="map">風險地圖</a>
+        <a href="#/check" data-route="check">我家安全嗎？</a>
+        <a href="#/about" data-route="about">資料與方法</a>
+      </nav>
+    </header>
+
+    <div id="loading" class="loading" role="status">
+      <div class="spinner" aria-hidden="true"></div>
+      <p id="loading-msg">載入資料中…</p>
+    </div>
+
+    <div id="toast" class="toast" role="alert" hidden></div>
+
+    <main>
+      <section id="view-map" class="view view-map" hidden>
+        <aside id="sidebar" class="sidebar" aria-label="權重與排行榜"></aside>
+        <div class="map-wrap"><div id="map" class="map"></div></div>
+        <aside id="drawer" class="drawer" hidden aria-label="分數說明">
+          <button id="drawer-close" class="drawer-close" aria-label="關閉說明面板">×</button>
+          <div id="drawer-body"></div>
+        </aside>
+      </section>
+
+      <section id="view-check" class="view view-check" hidden>
+        <div class="check-inner">
+          <h1>我家安全嗎？</h1>
+          <p class="lead">輸入門牌地址，看看你家的耐震風險分數是怎麼算出來的，以及下一步可以做什麼。</p>
+          <form id="check-form" class="check-form" autocomplete="off">
+            <label for="addr-input" class="sr-only">門牌地址</label>
+            <input id="addr-input" type="search" inputmode="text" enterkeyhint="search"
+              placeholder="例：臺北市中山區民生東路二段32號3樓" />
+            <button class="btn" type="submit">查詢</button>
+          </form>
+          <p class="hint">可含或不含「臺北市」「行政區」與樓層；沒寫行政區會搜尋全市（需多下載一些資料）。</p>
+          <div id="check-status" class="check-status" aria-live="polite"></div>
+          <div id="card-out"></div>
+        </div>
+      </section>
+
+      <section id="view-about" class="view view-about" hidden>
+        <div class="check-inner" id="about-out"></div>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
