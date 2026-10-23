@@ -1,7 +1,7 @@
 # pumathon｜#6 危老耐震風險評級
 
 > 最後更新：2026-10-23
-> 市政 debug 松（puma.taipei/hackathon）題目 #6「危老耐震如何查，風險評級怎麼找」。目前完成：資料整合、結構推估、風險加權模型與驗證、地圖與健檢卡前端（本機可跑，尚未部署）。
+> 市政 debug 松（puma.taipei/hackathon）題目 #6「危老耐震如何查，風險評級怎麼找」。目前完成：資料整合、結構推估、風險加權模型與驗證、地圖與健檢卡前端（已部署到 Cloudflare Workers）。
 
 ## 風險模型（方向 A）
 
@@ -54,6 +54,30 @@
 ```bash
 cd web && npm install && npm run dev
 ```
+
+### 部署（Cloudflare Workers 靜態資產）
+
+線上版：<https://pumathon-risk-map.jimmylai921.workers.dev/>。設定檔是 `web/wrangler.jsonc`：Worker 名稱 `pumathon-risk-map`、靜態資產目錄 `./dist`、相容日期 `2026-10-23`。wrangler 已釘在 4.149.0，放在 devDependencies。
+
+部署前需先以有該 Worker 權限的 Cloudflare 帳號登入：
+
+```bash
+cd web && npx wrangler login
+```
+
+**正式部署：** 先跑測試，接著 build，再 `wrangler deploy`。測試沒過就不會上傳。
+
+```bash
+cd web && npm run deploy
+```
+
+**預覽：** 用 `wrangler versions upload` 上傳一個新版本，會得到一個預覽網址，正式網址不受影響。
+
+```bash
+cd web && npm run deploy:preview
+```
+
+部署前請先跑完 `scripts/` 的資料管線，讓 `web/public/data/` 是最新的資料；這個資料夾不進版控，build 時會複製進 `dist/`。
 
 | 頁面 | 功能 |
 |---|---|
@@ -152,7 +176,7 @@ python -m venv .venv && .venv/Scripts/python -m pip install duckdb geopandas pya
 ```
 
 ```bash
-.venv/Scripts/python scripts/02_stage_cadastral.py "C:/Users/PeterLai/Downloads/AddressExport20261023.csv"
+.venv/Scripts/python scripts/02_stage_cadastral.py "<地籍匯出 CSV 路徑>"
 ```
 
 ```bash
@@ -174,6 +198,5 @@ cd scripts && ../.venv/Scripts/python 04_integrate.py && ../.venv/Scripts/python
 ## 下一步（尚未做）
 
 1. **補缺完成年那批建物的資料。** 確認地籍爬蟲能不能抓到建物標示部的「主要建材」或完成日。這能消除目前影響最大的假設，也能驗證結構推估的選樣偏誤。
-2. **部署**：把 `web/dist/` 上傳到 Cloudflare Pages（`wrangler pages deploy`）。
-3. **Demo 防斷網**：底圖依賴外部的 `wmts.nlsc.gov.tw`，現場斷網時會只剩點位。可以考慮把臺北的底圖做成 PMTiles 放在本機，同時準備健檢卡深連結的 QR code。
-4. 預設權重可以對照官方「耐震能力初步評估表」的項目再校一次（尚未查證）。
+2. **Demo 防斷網**：底圖依賴外部的 `wmts.nlsc.gov.tw`，現場斷網時會只剩點位。可以考慮把臺北的底圖做成 PMTiles 放在本機，同時準備健檢卡深連結的 QR code。
+3. 預設權重可以對照官方「耐震能力初步評估表」的項目再校一次（尚未查證）。

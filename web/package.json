@@ -9,7 +9,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test \"test/**/*.test.js\"",
-    "bench": "node bench/recompute.js"
+    "bench": "node bench/recompute.js",
+    "deploy": "npm test && npm run build && wrangler deploy",
+    "deploy:preview": "npm run build && wrangler versions upload"
   },
   "dependencies": {
     "@deck.gl/core": "9.3.11",
@@ -18,7 +20,8 @@
     "maplibre-gl": "6.13.0"
   },
   "devDependencies": {
-    "vite": "7.3.7"
+    "vite": "7.3.7",
+    "wrangler": "4.149.0"
   },
   "engines": {
     "node": ">=22.12.0"

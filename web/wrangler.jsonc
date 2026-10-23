@@ -1,0 +1,12 @@
+// Cloudflare Workers（純靜態資產）部署設定
+// 線上版：https://pumathon-risk-map.jimmylai921.workers.dev/
+// 部署：npm run deploy（先跑測試與 build，再 wrangler deploy）；預覽：npm run deploy:preview（wrangler versions upload，不影響正式版）
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "pumathon-risk-map",
+  "compatibility_date": "2026-10-23",
+  "assets": {
+    // vite build 的輸出，含 public/data/ 複製過來的資料檔
+    "directory": "./dist"
+  }
+}
