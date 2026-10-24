@@ -1,13 +1,15 @@
 """把風險模型結果匯出成前端用的靜態檔（web/public/data/）與一致性測試資料（web/test/fixtures/）。
 
 產出（資料契約，前端依此讀取）：
-  buildings.bin   欄式二進位（little-endian），各欄位 offset/型別記在 meta.json 的 columns
+  buildings.bin.gz  欄式二進位（little-endian）的 gzip 檔，各欄位 offset/型別記在 meta.json 的 columns；
+                    Cloudflare 不會壓縮 application/octet-stream，故預先壓縮，前端以 DecompressionStream 解壓
   meta.json       欄位表、各類別代碼表（codebooks）、里資料、模型設定（config/risk_weights.json 原文）、資料來源
   addr/{d}.json   依行政區分片的門牌：{"main": {建物索引: [主門牌, 使照號碼, 海砂屋案號]}, "alias": {門牌: 建物索引}}
                   門牌均已去掉「台北市XX區」前綴，正規化規則同 scripts/addr_norm.py
   addr/roads.json 路段 → 行政區代碼清單：{"仁愛路3段": [5], ...}，地址沒寫區時只需載入相關分片
   ../test/fixtures/parity.json  Python 算出的預期分數與門牌正規化案例，前端 JS 實作必須對得上
 """
+import gzip
 import importlib
 import json
 import sys
@@ -112,7 +114,9 @@ def main() -> None:
                        "offset": off, "length": n})
         buf += raw
         off += len(raw)
-    (OUT / "buildings.bin").write_bytes(bytes(buf))
+    # mtime=0 讓同樣內容產出相同的壓縮檔；順手刪掉舊版未壓縮檔，避免被一起部署
+    (OUT / "buildings.bin.gz").write_bytes(gzip.compress(bytes(buf), compresslevel=9, mtime=0))
+    (OUT / "buildings.bin").unlink(missing_ok=True)
 
     # 門牌分片：一棟的所有門牌（不含樓層）都可查到；main 為顯示用主門牌
     u = pd.read_parquet(PROC / "cadastral_units.parquet", columns=["lat", "lon", "address"])
@@ -157,6 +161,7 @@ def main() -> None:
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "count": n,
         "columns": layout,
+        "bin_gz_bytes": (OUT / "buildings.bin.gz").stat().st_size,
         "factor_keys": FACTORS,
         "factor_scale": 65535,
         "flag_bits": FLAG_BITS,
@@ -180,7 +185,7 @@ def main() -> None:
 
     write_fixtures(b, u, cfg)
     size = sum(p.stat().st_size for p in OUT.rglob("*") if p.is_file())
-    print(f"建物 {n:,} 棟；buildings.bin {(OUT / 'buildings.bin').stat().st_size / 1e6:.1f} MB；"
+    print(f"建物 {n:,} 棟；buildings.bin {len(buf) / 1e6:.1f} MB（gzip 後 {meta['bin_gz_bytes'] / 1e6:.1f} MB）；"
           f"門牌別名 {len(u):,} 筆（同門牌多棟 {alias_dup:,} 筆取戶數多者）；data/ 合計 {size / 1e6:.1f} MB -> {OUT}")
 
 

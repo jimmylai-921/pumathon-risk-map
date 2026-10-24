@@ -44,7 +44,7 @@ export const TIERS = [
 const TYPED = { float32: Float32Array, uint16: Uint16Array, uint8: Uint8Array };
 
 /**
- * 解碼 buildings.bin：依 meta.columns 建立 typed array view（不複製資料）。
+ * 解碼 buildings.bin（已從 .gz 解壓）：依 meta.columns 建立 typed array view（不複製資料）。
  * @param {object} meta meta.json 內容
  * @param {ArrayBuffer} buffer buildings.bin 的 ArrayBuffer
  */

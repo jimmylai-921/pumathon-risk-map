@@ -159,7 +159,7 @@ web/                            地圖與健檢卡前端（vanilla JS + Vite + d
 
 | 檔案 | 內容 |
 |---|---|
-| `buildings.bin`（10.6 MB） | 欄式二進位、little-endian。因子分數以 uint16（×65535）存放，其餘欄位為代碼或整數，各欄的 offset 寫在 `meta.json` |
+| `buildings.bin.gz`（gzip 後約 3.2 MB，解壓 10.6 MB） | 欄式二進位、little-endian，預先 gzip（Cloudflare 不壓縮 octet-stream），前端以 `DecompressionStream` 解壓。因子分數以 uint16（×65535）存放，其餘欄位為代碼或整數，各欄的 offset 寫在 `meta.json` |
 | `meta.json` | 欄位表、類別代碼表、里資料（含 65 歲以上人口比例與百分位）、`config/risk_weights.json` 原文、資料來源（標示真實或模型推估） |
 | `addr/{區代碼}.json`（12 個分片，每片 0.7–2 MB） | 主門牌、使照號碼、海砂屋案號，以及「門牌 → 建物」對照，查詢時才載入 |
 
