@@ -15,3 +15,6 @@ web/public/data/
 web/test/fixtures/
 # wrangler 本機快取
 web/.wrangler/
+
+# 介紹影片成品（體積大，不進版控）
+promo/
