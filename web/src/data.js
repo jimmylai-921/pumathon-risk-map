@@ -92,6 +92,13 @@ export function createShardStore(meta) {
   };
 }
 
+/** 里界 villages.json（GeoJSON，gzip 後約 70 KB；切到里別檢視才需要，啟動時於背景預載） */
+export async function loadVillageGeo() {
+  const r = await fetch(`${BASE}villages.json`);
+  if (!r.ok) throw new Error(`里界載入失敗（HTTP ${r.status}）`);
+  return r.json();
+}
+
 /** 路段索引 addr/roads.json：{路段: [行政區代碼…]}（約 15 KB，啟動時預載） */
 export async function loadRoads() {
   const r = await fetch(`${BASE}addr/roads.json`);

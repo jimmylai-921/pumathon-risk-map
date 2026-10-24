@@ -7,6 +7,7 @@
   addr/{d}.json   依行政區分片的門牌：{"main": {建物索引: [主門牌, 使照號碼, 海砂屋案號]}, "alias": {門牌: 建物索引}}
                   門牌均已去掉「台北市XX區」前綴，正規化規則同 scripts/addr_norm.py
   addr/roads.json 路段 → 行政區代碼清單：{"仁愛路3段": [5], ...}，地址沒寫區時只需載入相關分片
+  villages.json   里界 GeoJSON（簡化後），properties.v = meta.json villages 的索引，供地圖「里別」檢視上色
   ../test/fixtures/parity.json  Python 算出的預期分數與門牌正規化案例，前端 JS 實作必須對得上
 """
 import gzip
@@ -21,7 +22,10 @@ import pandas as pd
 
 from addr_norm import normalize
 
+import geopandas as gpd
+
 ROOT = Path(__file__).resolve().parent.parent
+RAW = ROOT / "data" / "raw"
 PROC = ROOT / "data" / "processed"
 OUT = ROOT / "web" / "public" / "data"
 FIXTURES = ROOT / "web" / "test" / "fixtures"
@@ -183,10 +187,30 @@ def main() -> None:
     }
     (OUT / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
 
+    write_villages(vil["VILLCODE"].tolist())
     write_fixtures(b, u, cfg)
     size = sum(p.stat().st_size for p in OUT.rglob("*") if p.is_file())
     print(f"建物 {n:,} 棟；buildings.bin {len(buf) / 1e6:.1f} MB（gzip 後 {meta['bin_gz_bytes'] / 1e6:.1f} MB）；"
           f"門牌別名 {len(u):,} 筆（同門牌多棟 {alias_dup:,} 筆取戶數多者）；data/ 合計 {size / 1e6:.1f} MB -> {OUT}")
+
+
+def write_villages(codes: list) -> None:
+    """里界 → villages.json：簡化約 3 m、座標取 5 位小數（約 1 m），只留 meta.villages 的索引當屬性。"""
+    v = gpd.read_file(RAW / "village_boundary" / "VILLAGE_NLSC_1150817.shp")
+    v = v[v["COUNTYNAME"] == "臺北市"].to_crs("EPSG:4326")
+    vidx = {c: i for i, c in enumerate(codes)}
+    v = v[v["VILLCODE"].isin(vidx)]
+    v["geometry"] = v.geometry.simplify(0.00003, preserve_topology=True)
+    r5 = lambda ring: [[round(x, 5), round(y, 5)] for x, y in ring.coords]
+    feats = []
+    for code, geom in zip(v["VILLCODE"], v.geometry):
+        polys = list(geom.geoms) if geom.geom_type == "MultiPolygon" else [geom]
+        rings = [[r5(p.exterior)] + [r5(h) for h in p.interiors] for p in polys]
+        feats.append({"type": "Feature", "properties": {"v": vidx[code]},
+                      "geometry": {"type": "MultiPolygon", "coordinates": rings}})
+    out = OUT / "villages.json"
+    out.write_text(json.dumps({"type": "FeatureCollection", "features": feats}, separators=(",", ":")), encoding="utf-8")
+    print(f"里界 {len(feats)} 里（meta 有 {len(codes)} 里）-> {out}（{out.stat().st_size / 1e3:.0f} KB）")
 
 
 def write_fixtures(b: pd.DataFrame, u: pd.DataFrame, cfg: dict) -> None:

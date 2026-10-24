@@ -3,15 +3,19 @@ import './style.css';
 import {
   computeScores, defaultParams, rankStats, topN, householdImpact, tierIndex, TIERS,
 } from './model.js';
-import { buildLayerArrays, colorDomain } from './colors.js';
-import { loadBuildings, createShardStore, loadRoads } from './data.js';
+import { buildLayerArrays, colorDomain, rampColor } from './colors.js';
+import { loadBuildings, createShardStore, loadRoads, loadVillageGeo } from './data.js';
 import { createMapView, BASEMAP_URL } from './mapview.js';
 import { renderExplain, renderSources, buildingInfo, addressText } from './explain.js';
 import {
-  sidebarHtml, renderFormula, renderLegend, renderLeaderboard, exportCsv, rankHint,
+  sidebarHtml, renderFormula, renderLegend, renderLeaderboard, exportCsv, downloadCsv, rankHint,
 } from './sidebar.js';
 import { lookupAddress, renderCard } from './card.js';
-import { esc, fmt, fmtInt, parseHash, setHash, parseIndex, $ } from './util.js';
+import {
+  V_METRICS, metricOf, buildVillageIndex, aggregateVillages, rankVillages, villageDomain,
+  renderVillageLegend, renderVillagePanel, renderVillageBoard, villageCsvRows,
+} from './village.js';
+import { esc, fmt, fmtInt, pct, parseHash, setHash, parseIndex, $ } from './util.js';
 
 const st = {
   data: null, shards: null, params: null, defaults: null,
@@ -19,7 +23,11 @@ const st = {
   rankMode: 'score', topN: 100, district: 0, tiers: new Set([0, 1, 2, 3]),
   list: new Uint32Array(0), selected: null, cardIndex: null, mapView: null, view: null,
   roads: null, // Promise<路段索引>
+  // 里別檢視
+  mapMode: 'building', vMetric: 'mean', vindex: null, vagg: null, vgeo: null, // vgeo: Promise<里界 GeoJSON>
+  selVillage: null, vList: [], vVersion: 0,
 };
+const VILLAGE_TOP = 20;
 
 // ---------------------------------------------------------------- 載入
 const loadingEl = $('#loading');
@@ -29,6 +37,8 @@ async function boot() {
   // 路段索引很小，與建物資料並行預載；失敗時查詢會退回載入全部分片
   st.roads = loadRoads();
   st.roads.catch(() => {});
+  st.vgeo = loadVillageGeo();
+  st.vgeo.catch(() => {});
   try {
     st.data = await loadBuildings((p) => setLoading(`載入 ${fmtInt(235964)} 棟建物資料… ${Math.round(p * 100)}%`));
   } catch (e) {
@@ -39,15 +49,26 @@ async function boot() {
   st.defaults = defaultParams(st.data.meta.config);
   st.params = defaultParams(st.data.meta.config);
   st.scores = new Float32Array(st.data.n);
+  st.vindex = buildVillageIndex(st.data);
 
   $('#sidebar').innerHTML = sidebarHtml(st);
   bindSidebar();
+  bindMapMode();
   renderAbout();
   st.mapView = createMapView($('#map'), {
     onPick: (i) => selectBuilding(i, { fly: false }),
     tooltip: (i) => {
       const s = st.scores[i];
       return { text: `分數 ${fmt(s, 1)}（${TIERS[tierIndex(s, st.stats.thresholds)].label}）・點擊看說明`, className: 'deck-tip' };
+    },
+    onPickVillage: (v) => selectVillage(v, { fit: false }),
+    villageTooltip: (v) => {
+      const info = st.data.meta.villages[v];
+      const a = st.vagg;
+      return {
+        text: `${info.district}${info.name}\n平均分數 ${fmt(a.mean[v], 1)}・極高＋高 ${Number.isNaN(a.highShare[v]) ? '—' : pct(a.highShare[v], 1)}・65+ ${pct(a.elderly[v], 1)}\n點擊看里統計`,
+        className: 'deck-tip',
+      };
     },
   });
   recompute();
@@ -94,17 +115,118 @@ function recompute() {
   } else {
     st.list = topN(st.scores, st.topN, mask, mask ? null : st.stats.sorted);
   }
-  const arrays = buildLayerArrays(st.data, st.scores, st.domain, visible);
+  st.vagg = aggregateVillages(st.data, st.vindex, st.scores, st.stats.thresholds);
+  const village = st.mapMode === 'village';
+  // 里別檢視只畫選取里的建物點，其餘交給里界面量圖
+  const arrays = buildLayerArrays(st.data, st.scores, st.domain, village ? villageMembers(st.selVillage) : visible);
   st.mapView.setArrays(arrays);
+  updateVillageLayer();
   const ms = performance.now() - t0;
 
-  $('#perf').textContent = `全市 ${fmtInt(st.data.n)} 棟重算＋排名＋上色：${ms.toFixed(0)} ms（顯示 ${fmtInt(arrays.length)} 棟）`;
+  $('#perf').textContent = `全市 ${fmtInt(st.data.n)} 棟重算＋排名＋里別聚合＋上色：${ms.toFixed(0)} ms（顯示 ${fmtInt(arrays.length)} 棟）`;
   $('#formula').innerHTML = renderFormula(st);
-  $('#legend').innerHTML = renderLegend(st);
+  $('#legend').innerHTML = village ? renderVillageLegend(st.vagg, st.vMetric) : renderLegend(st);
   $('#rank-hint').textContent = rankHint(st);
   renderLb();
-  if (st.selected != null && !$('#drawer').hidden) renderDrawer();
+  if (!$('#drawer').hidden) {
+    if (st.selected != null) renderDrawer();
+    else if (st.selVillage != null) renderVillageDrawer();
+  }
   if (st.view === 'check' && st.cardIndex != null) showCard(st.cardIndex);
+}
+
+// ---------------------------------------------------------------- 里別檢視
+function villageMembers(v) {
+  if (v == null) return new Uint32Array(0);
+  const { start, members } = st.vindex;
+  return members.subarray(start[v], start[v + 1]);
+}
+
+/** 里界上色：依目前指標；選了行政區時其他區淡化 */
+function updateVillageLayer() {
+  if (st.mapMode !== 'village') { st.mapView.setVillages(null, null); return; }
+  st.vgeo.then((geo) => {
+    if (st.mapMode !== 'village') return;
+    const vals = st.vagg[st.vMetric];
+    const [lo, hi] = villageDomain(st.vagg, st.vMetric);
+    const dname = st.district ? st.data.meta.codebooks.district[st.district] : null;
+    const colors = new Uint8Array(st.vagg.nv * 4);
+    for (let v = 0; v < st.vagg.nv; v++) {
+      const x = vals[v];
+      const dim = dname && st.data.meta.villages[v].district !== dname;
+      const [r, g, b] = Number.isNaN(x) ? [200, 200, 200] : rampColor((x - lo) / (hi - lo || 1));
+      // 選取的里調淡，讓里內建物點與街道看得清楚
+      colors.set([r, g, b, dim ? 40 : v === st.selVillage ? 50 : 165], v * 4);
+    }
+    st.mapView.setVillages(geo, { colors, version: ++st.vVersion, selected: st.selVillage });
+  }).catch((e) => notify(`里界資料載入失敗：${e.message}`));
+}
+
+function setMapMode(mode) {
+  if (mode === st.mapMode) return;
+  st.mapMode = mode;
+  const village = mode === 'village';
+  $('#map-mode').querySelectorAll('[data-mode]').forEach((b) => {
+    b.classList.toggle('on', b.dataset.mode === mode);
+    b.setAttribute('aria-checked', String(b.dataset.mode === mode));
+  });
+  $('#map-mode .vmetric').hidden = !village;
+  $('#sidebar').classList.toggle('mode-village', village);
+  $('#lb-title').textContent = village ? '里別排行榜' : '優先健檢排行榜';
+  closeDrawer();
+  if (village) history.replaceState(null, '', '#/map?mode=village');
+  scheduleRecompute();
+}
+
+function bindMapMode() {
+  const box = $('#map-mode');
+  $('#v-metric').innerHTML = V_METRICS.map((m) => `<option value="${m.key}">${esc(m.label)}</option>`).join('');
+  box.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-mode]');
+    if (b) setMapMode(b.dataset.mode);
+  });
+  $('#v-metric').addEventListener('change', (e) => {
+    st.vMetric = metricOf(e.target.value).key;
+    scheduleRecompute();
+  });
+}
+
+function selectVillage(v, { fit }) {
+  if (!Number.isSafeInteger(v) || v < 0 || v >= st.vindex.nv) return;
+  st.selVillage = v;
+  st.selected = null;
+  st.mapView.select(null);
+  if (fit) st.vgeo.then(() => st.mapView.fitVillage(v)).catch(() => {});
+  history.replaceState(null, '', `#/map?v=${v}`);
+  $('#drawer').hidden = false;
+  scheduleRecompute(); // 重畫該里建物點、選取外框、排行榜反白與面板
+}
+
+function villageTop(v, n) {
+  const m = villageMembers(v);
+  return Uint32Array.from(m).sort((a, b) => st.scores[b] - st.scores[a] || a - b).subarray(0, n);
+}
+
+let vTopToken = 0;
+function renderVillageDrawer() {
+  const v = st.selVillage;
+  const top = villageTop(v, VILLAGE_TOP);
+  $('#drawer-body').innerHTML = renderVillagePanel(st, v, top, addrOf);
+  const need = new Set(Array.from(top, (i) => st.data.cols.district[i]).filter((c) => c && !st.shards.get(c)));
+  if (!need.size) return;
+  const token = ++vTopToken;
+  Promise.all([...need].map((c) => st.shards.load(c).catch(() => null))).then(() => {
+    if (token === vTopToken && st.selVillage === v && st.selected == null) {
+      $('#drawer-body').innerHTML = renderVillagePanel(st, v, top, addrOf);
+    }
+  });
+}
+
+async function exportVillageBuildings(v) {
+  const list = villageTop(v, Infinity);
+  await Promise.all([...new Set(Array.from(list, (i) => st.data.cols.district[i]))].map((c) => st.shards.load(c).catch(() => null)));
+  const info = st.data.meta.villages[v];
+  exportCsv(st, addrOf, { list, filename: `危老耐震_${info.district}${info.name}_全部${list.length}棟.csv` });
 }
 
 // ---------------------------------------------------------------- 排行榜（地址依需要載入分片）
@@ -115,6 +237,12 @@ function addrOf(i) {
 
 let lbToken = 0;
 function renderLb() {
+  if (st.mapMode === 'village') {
+    st.vList = rankVillages(st.vagg, st.vMetric, st.data, st.district);
+    $('#lb').innerHTML = renderVillageBoard(st, st.vList);
+    $('#vlb-count').textContent = `${st.district ? st.data.meta.codebooks.district[st.district] : '全市'} ${st.vList.length} 里`;
+    return;
+  }
   $('#lb').innerHTML = renderLeaderboard(st, addrOf);
   if (st.view !== 'map') return;
   const need = new Set(Array.from(st.list, (i) => st.data.cols.district[i]).filter((c) => c && !st.shards.get(c)));
@@ -156,9 +284,14 @@ function bindSidebar() {
     }
   });
   sb.addEventListener('click', async (e) => {
-    const btn = e.target.closest('button, tr[data-i]');
+    const btn = e.target.closest('button, tr[data-i], tr[data-v]');
     if (!btn) return;
-    if (btn.dataset.action === 'reset') {
+    if (btn.dataset.v != null) {
+      selectVillage(Number(btn.dataset.v), { fit: true });
+    } else if (btn.dataset.action === 'export-villages') {
+      const d = st.district ? `_${st.data.meta.codebooks.district[st.district]}` : '_全市';
+      downloadCsv(`危老耐震里別統計${d}_依${metricOf(st.vMetric).short}.csv`, villageCsvRows(st, st.vList));
+    } else if (btn.dataset.action === 'reset') {
       resetWeights();
     } else if (btn.dataset.action === 'export') {
       btn.disabled = true;
@@ -223,7 +356,10 @@ function renderDrawer() {
   const i = st.selected;
   const shard = st.shards.get(st.data.cols.district[i]);
   const info = buildingInfo(st.data, i, shard);
-  $('#drawer-body').innerHTML = `
+  const back = st.mapMode === 'village' && st.selVillage != null
+    ? `<button class="btn btn-ghost btn-sm back" data-action="back-village">← 回到${esc(st.data.meta.villages[st.selVillage].name)}統計</button>`
+    : '';
+  $('#drawer-body').innerHTML = `${back}
     <div class="drawer-title">
       <h2>${esc(addressText(info))}</h2>
       <div class="muted">建物 #${i}・${info.units ? `約 ${fmtInt(info.units)} 戶` : '戶數未知'}</div>
@@ -339,7 +475,14 @@ function route() {
   document.querySelectorAll('[data-route]').forEach((a) => a.classList.toggle('on', a.dataset.route === view));
   if (view === 'map') {
     st.mapView.resize();
+    const vq = query.get('v');
+    if (vq != null || query.get('mode') === 'village') setMapMode('village');
     renderLb();
+    if (vq != null) {
+      const v = parseIndex(vq, st.vindex.nv);
+      if (v == null) notify(`連結中的里編號「${vq}」無效（須為 0–${st.vindex.nv - 1} 的整數），已忽略。`);
+      else if (v !== st.selVillage) selectVillage(v, { fit: true });
+    }
     const b = query.get('b');
     if (b != null) {
       const i = parseIndex(b, st.data.n);
@@ -371,12 +514,33 @@ for (const sel of ['#drawer-body', '#card-out']) {
   });
 }
 
-$('#drawer-close').addEventListener('click', () => {
-  $('#drawer').hidden = true;
-  st.selected = null;
-  st.mapView?.select(null);
-  history.replaceState(null, '', '#/map');
+// 里面板：前幾棟清單點選、匯出本里、從建物說明回到里統計
+$('#drawer-body').addEventListener('click', async (e) => {
+  const t = e.target.closest('tr[data-i], [data-action="export-village"], [data-action="back-village"]');
+  if (!t) return;
+  if (t.dataset.i != null) {
+    selectBuilding(Number(t.dataset.i), { fly: true });
+  } else if (t.dataset.action === 'back-village') {
+    selectVillage(st.selVillage, { fit: false });
+  } else {
+    t.disabled = true;
+    t.textContent = '準備中…';
+    await exportVillageBuildings(Number(t.dataset.v));
+    t.disabled = false;
+    t.textContent = '匯出本里全部建物 CSV';
+  }
 });
+
+function closeDrawer() {
+  $('#drawer').hidden = true;
+  const hadVillage = st.selVillage != null;
+  st.selected = null;
+  st.selVillage = null;
+  st.mapView?.select(null);
+  history.replaceState(null, '', st.mapMode === 'village' ? '#/map?mode=village' : '#/map');
+  if (hadVillage && st.data) scheduleRecompute();
+}
+$('#drawer-close').addEventListener('click', closeDrawer);
 // 首次開啟提示：只顯示一次；本來就開在健檢卡的連結不打擾
 function showWelcome() {
   const KEY = 'welcome-seen';

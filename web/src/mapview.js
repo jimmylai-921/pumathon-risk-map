@@ -1,17 +1,18 @@
-// 地圖：MapLibre（國土測繪中心臺灣通用電子地圖灰階 WMTS）＋ deck.gl ScatterplotLayer（binary attributes）。
+// 地圖：MapLibre（國土測繪中心臺灣通用電子地圖灰階 WMTS）＋ deck.gl ScatterplotLayer（binary attributes）；
+// 里別檢視另疊一層 GeoJsonLayer（里界面量圖）。
 import { Map as MapLibreMap, NavigationControl, setWorkerUrl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 // maplibre-gl 6 的 worker 是獨立 ESM 檔，執行期以 import.meta.url 推算路徑；經 Vite 打包後會失效，改由 ?url 匯出資產網址
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import { MapboxOverlay } from '@deck.gl/mapbox';
-import { ScatterplotLayer } from '@deck.gl/layers';
+import { ScatterplotLayer, GeoJsonLayer } from '@deck.gl/layers';
 
 // 已用 curl 確認 HTTP 200、image/jpeg、單通道灰階（EMAP01 = 臺灣通用電子地圖灰階）；注意路徑是 {z}/{y}/{x}
 export const BASEMAP_URL = 'https://wmts.nlsc.gov.tw/wmts/EMAP01/default/GoogleMapsCompatible/{z}/{y}/{x}';
 
 setWorkerUrl(maplibreWorkerUrl);
 
-export function createMapView(container, { onPick, tooltip }) {
+export function createMapView(container, { onPick, tooltip, onPickVillage, villageTooltip }) {
   const map = new MapLibreMap({
     container,
     style: {
@@ -41,16 +42,55 @@ export function createMapView(container, { onPick, tooltip }) {
 
   let arrays = null;
   let selected = null;
+  // 里別：geo = 里界 FeatureCollection；vColors = 每里 RGBA（nv×4）；version 變動時 deck.gl 才重算顏色
+  let geo = null;
+  let vStyle = null; // {colors, version, selected}
   const overlay = new MapboxOverlay({
     interleaved: false,
     layers: [],
-    getTooltip: (info) => (info.layer?.id === 'buildings' && info.index >= 0 && arrays
-      ? tooltip(arrays.order[info.index]) : null),
+    getTooltip: (info) => {
+      if (info.layer?.id === 'buildings' && info.index >= 0 && arrays) return tooltip(arrays.order[info.index]);
+      if (info.layer?.id === 'villages' && info.object) return villageTooltip(info.object.properties.v);
+      return null;
+    },
   });
   map.addControl(overlay);
 
   function render() {
     const layers = [];
+    if (geo && vStyle) {
+      const { colors, version } = vStyle;
+      layers.push(new GeoJsonLayer({
+        id: 'villages',
+        data: geo,
+        filled: true,
+        stroked: true,
+        getFillColor: (f) => {
+          const o = f.properties.v * 4;
+          return [colors[o], colors[o + 1], colors[o + 2], colors[o + 3]];
+        },
+        getLineColor: [255, 255, 255, 220],
+        lineWidthMinPixels: 0.6,
+        pickable: true,
+        autoHighlight: true,
+        highlightColor: [0, 90, 200, 90],
+        updateTriggers: { getFillColor: version },
+        onClick: (info) => { if (info.object) onPickVillage(info.object.properties.v); },
+      }));
+      if (vStyle.selected != null) {
+        const f = geo.features.find((x) => x.properties.v === vStyle.selected);
+        if (f) {
+          layers.push(new GeoJsonLayer({
+            id: 'village-selected',
+            data: [f],
+            filled: false,
+            stroked: true,
+            getLineColor: [0, 70, 180, 255],
+            lineWidthMinPixels: 3,
+          }));
+        }
+      }
+    }
     if (arrays) {
       layers.push(new ScatterplotLayer({
         id: 'buildings',
@@ -95,6 +135,18 @@ export function createMapView(container, { onPick, tooltip }) {
   return {
     map,
     setArrays(a) { arrays = a; render(); },
+    /** 里別圖層：geojson 只需給一次；style = {colors, version, selected}，傳 null 關閉里別圖層 */
+    setVillages(geojson, style) { if (geojson) geo = geojson; vStyle = style; render(); },
+    /** 縮放到某里的範圍 */
+    fitVillage(v) {
+      const f = geo?.features.find((x) => x.properties.v === v);
+      if (!f) return;
+      let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+      for (const poly of f.geometry.coordinates) {
+        for (const [x, y] of poly[0]) { w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y); }
+      }
+      map.fitBounds([[w, s], [e, n]], { padding: 40, maxZoom: 17, speed: 1.6 });
+    },
     select(pos) { selected = pos; render(); },
     flyTo(lon, lat, zoom = 17) { map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), zoom), speed: 1.6 }); },
     resize() { map.resize(); },

@@ -46,14 +46,19 @@ export function sidebarHtml(st) {
     <label class="field">行政區
       <select id="f-district"><option value="0">全部 12 區</option>${districts}</select>
     </label>
-    <div class="tiers-filter">
+    <div class="tiers-filter only-building">
       ${TIERS.map((t, i) => `<label class="chk"><input type="checkbox" data-tier="${i}" checked><span class="tier-dot ${TIER_CLASS[i]}"></span>${t.label}</label>`).join('')}
     </div>
   </section>
   <section class="panel">
     <div class="panel-head">
-      <h2>優先健檢排行榜</h2>
+      <h2 id="lb-title">優先健檢排行榜</h2>
     </div>
+    <div class="only-village">
+      <p class="hint">依地圖上色指標排序；點一列看該里統計。</p>
+      <div class="row"><span class="hint" id="vlb-count"></span><button class="btn btn-sm" data-action="export-villages">匯出里別 CSV</button></div>
+    </div>
+    <div class="only-building">
     <div class="seg-toggle" role="radiogroup" aria-label="排名方式">
       <button data-rank="score" class="on" role="radio" aria-checked="true">依棟分數</button>
       <button data-rank="impact" role="radio" aria-checked="false">依影響戶數</button>
@@ -62,6 +67,7 @@ export function sidebarHtml(st) {
     <div class="row">
       <label class="field inline">前 <input id="top-n" type="number" min="10" max="2000" step="10" value="${st.topN}"> 棟</label>
       <button class="btn btn-sm" data-action="export">匯出 CSV</button>
+    </div>
     </div>
     <div class="table-wrap lb-wrap"><table class="lb" id="lb"></table></div>
   </section>`;
@@ -124,15 +130,24 @@ export const csvCell = (v) => {
 /** 數字欄：固定小數位但保持 number 型別（不經公式注入處理） */
 const num = (v, d) => Number(v.toFixed(d));
 
-/** 匯出前 N 棟 CSV（UTF-8 BOM，Excel 開中文不亂碼） */
-export function exportCsv(st, addrOf) {
+/** 二維陣列 → CSV 下載（UTF-8 BOM，Excel 開中文不亂碼） */
+export function downloadCsv(filename, rows) {
+  downloadText(filename, `﻿${rows.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`);
+}
+
+/**
+ * 匯出建物 CSV（UTF-8 BOM，Excel 開中文不亂碼）。
+ * 預設為排行榜前 N 棟；opts = {list, filename} 時改匯出指定建物（例如某里全部建物）。
+ */
+export function exportCsv(st, addrOf, opts = {}) {
   const { data } = st;
   const c = data.cols;
   const book = data.meta.codebooks;
   const header = ['排名', '建物編號', '行政區', '地址', '分數', '分級', '戶數', '影響戶數', '完成年', '結構', '結構來源',
     ...CONTRIB_KEYS.map((k) => `貢獻分_${LABELS[k]}`), '經度', '緯度'];
   const lines = [header.map(csvCell).join(',')];
-  Array.from(st.list).forEach((i, j) => {
+  const list = opts.list ?? st.list;
+  Array.from(list).forEach((i, j) => {
     const x = explainScore(data, i, st.params);
     const r = roundPreservingSum(CONTRIB_KEYS.map((k) => x.contributions[k]), 2);
     const t = tierIndex(st.scores[i], st.stats.thresholds);
@@ -145,7 +160,7 @@ export function exportCsv(st, addrOf) {
   });
   const mode = st.rankMode === 'impact' ? '依影響戶數' : '依棟分數';
   const dist = st.district ? `_${book.district[st.district]}` : '';
-  downloadText(`危老耐震優先健檢清單_前${st.list.length}棟_${mode}${dist}.csv`, `﻿${lines.join('\r\n')}\r\n`);
+  downloadText(opts.filename ?? `危老耐震優先健檢清單_前${list.length}棟_${mode}${dist}.csv`, `﻿${lines.join('\r\n')}\r\n`);
 }
 
 export function rankHint(st) {

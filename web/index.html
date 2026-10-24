@@ -43,7 +43,18 @@
     <main>
       <section id="view-map" class="view view-map" hidden>
         <aside id="sidebar" class="sidebar" aria-label="權重與排行榜"></aside>
-        <div class="map-wrap"><div id="map" class="map"></div></div>
+        <div class="map-wrap">
+          <div id="map" class="map"></div>
+          <div class="map-mode" id="map-mode">
+            <div class="seg-toggle" role="radiogroup" aria-label="地圖檢視">
+              <button data-mode="building" class="on" role="radio" aria-checked="true">逐棟</button>
+              <button data-mode="village" role="radio" aria-checked="false">里別</button>
+            </div>
+            <label class="vmetric" hidden>上色
+              <select id="v-metric"></select>
+            </label>
+          </div>
+        </div>
         <aside id="drawer" class="drawer" hidden aria-label="分數說明">
           <button id="drawer-close" class="drawer-close" aria-label="關閉說明面板">×</button>
           <div id="drawer-body"></div>
